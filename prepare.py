@@ -1,34 +1,48 @@
-import acquire
-import warnings
 import pandas as pd
 import numpy as np
+import env
+import os
 
-from env import get_connection
+from pydataset import data
+from scipy import stats
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
-from sklearn.tree import DecisionTreeClassifier, plot_tree
-from sklearn.metrics import classification_report
-from sklearn.metrics import confusion_matrix
 
-# telco data preparation, dummy create variable and concat the tables
-def prep_telco(df):
-    df_telco = acquire.get_telco_data(df)
-    df_telco.drop(columns = ['internet_service_type_id', 'payment_type_id', 'Unnaned : 0'], inplace = True)
-    dummy_df_telco = pd.get_dummies(df_telco[['partner', 'dependents', 'phone_service', 'multiple_lines', 'online_security','online_backup', 'device_protection', 'tech_support', 'streaming_tv', 'streaming_movies', 'paperless_billing', 'churn', 'internet_service_type', 'gender']], dummy_na = False, drop_first = True)
-
-    ct_df = pd.DataFrame({'contract_type' : df_telco['contract_type']})
-    ct_df['contract_type_Yes'] = ct_df['contract_type'].apply(lambda x : 0 if x == 'Month-to-month' else 1)
-
-    df_telco = pd.concat([df_telco, dummy_df_telco, ct_df], axis =1)
-    df_telco.drop(columns = ['partner', 'dependents', 'phone_service', 'multiple_lines', 'online_security', 'online_backup', 'device_protection', 'device_protection', 'tech_support', 'streaming_tv', 'streaming_movies', 'paperless_billing', 'churn', 'internet_service_type', 'gender'], inplace = True)
-    df_telco.total_charges = df_telco.total_charges.str.replace(' ', '0').astype('float')
-    return df_telco
+def clean_telco(df):
+    to_drop = ['Unnamed: 0', 'customer_id', 'contract_type_id.1', 'paperless_billing.1',
+                   'gender.1', 'senior_citizen.1', 'partner.1', 'dependents.1', 
+                   'payment_type_id.1', 'monthly_charges.1', 'total_charges.1', 'signup_date']
+    df.drop(columns = to_drop, inplace = True)
+    df.drop(df.columns[0], axis = 1, inplace = True)
+    df ['total_charges'] = (df.tenure * df.monthly_charges)
+    df = df[df.total_charges != 0]
+    df['charge_rank'] = pd.qcut(df['total_charges'], 4, labels = ['a','b','c','d'])
+    return df
 
 
+def dummies_telco(df):
+    '''
+    this function generates dummy columns for modeling
+    '''
+    outout = []
+    outout = pd.get_dummies(df[['charge_rank', 'internet_service_type', 'gender', 'senior_citizen', 'partner', 
+                                                'contract_type', 'dependents', 'phone_service','multiple_lines',
+                                               'online_security', 'online_backup','device_protection','streaming_tv', 
+                                                'paperless_billing','churn', 'contract_type','internet_service_type',
+                                               'payment_type']],drop_first = [True, True])
+    outout['customer_id'] = df.customer_id
+    return outout
 
-def split_telco(df):
-    df_telco = prep_telco(df)
-    train, telco_test = train_test_split(df_telco, test_size = 0.2, random_state = 123)
-    telco_train, telco_validate = train_test_split(train, test_size = 0.25, random_state = 123)
-    return telco_train, telco_validate, telco_test
 
+def train_val_test(df, target):
+    '''
+    this function splits up the data into sections for training,
+    validating, and testing
+    models
+    '''
+    seed = 99
+    train, val_test = train_test_split(df, train_size = 0.7,
+                                       random_state = seed, stratify = df[target])
+    validate, test = train_test_split(val_test, train_size = 0.5, random_state = seed,
+                                      stratify = val_test[target])
+    return train, validate, test
